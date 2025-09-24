@@ -1,6 +1,8 @@
+use num_bigint::BigUint;
+use num_traits::{ToPrimitive, Zero};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::PyLong;
+use pyo3::types::{PyBytes, PyLong};
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
@@ -39,8 +41,7 @@ fn encode_base57_raw(mut value: u128) -> Vec<u8> {
     buf
 }
 
-fn encode_base57(value: u128, pad_to: Option<usize>) -> String {
-    let digits = String::from_utf8(encode_base57_raw(value)).expect("alphabet is valid UTF-8");
+fn pad_digits(digits: String, pad_to: Option<usize>) -> String {
     if let Some(width) = pad_to {
         if width > digits.len() {
             let mut padded = String::with_capacity(width);
@@ -52,12 +53,31 @@ fn encode_base57(value: u128, pad_to: Option<usize>) -> String {
     digits
 }
 
-fn decode_base57(value: &str) -> PyResult<u128> {
+fn encode_base57(value: u128, pad_to: Option<usize>) -> String {
+    let digits = String::from_utf8(encode_base57_raw(value)).expect("alphabet is valid UTF-8");
+    pad_digits(digits, pad_to)
+}
+
+fn encode_big_base57(value: &BigUint, pad_to: Option<usize>) -> String {
+    let digits = if value.is_zero() {
+        vec![ALPHABET[0]]
+    } else {
+        value
+            .to_radix_be(BASE as u32)
+            .into_iter()
+            .map(|digit| ALPHABET[digit as usize])
+            .collect::<Vec<_>>()
+    };
+    let digits = String::from_utf8(digits).expect("alphabet is valid UTF-8");
+    pad_digits(digits, pad_to)
+}
+
+fn decode_base57(value: &str) -> PyResult<BigUint> {
     if value.is_empty() {
         return Err(PyValueError::new_err("Value cannot be empty"));
     }
 
-    let mut result: u128 = 0;
+    let mut result = BigUint::from(0u8);
     for (index, ch) in value.char_indices() {
         let byte = match ch.is_ascii() {
             true => ch as u8,
@@ -73,12 +93,42 @@ fn decode_base57(value: &str) -> PyResult<u128> {
                 "Invalid base57 character: {ch:?} at position {index}"
             )));
         }
-        result = result
-            .checked_mul(BASE)
-            .and_then(|acc| acc.checked_add(digit as u128))
-            .ok_or_else(|| PyValueError::new_err("Decoded value overflowed u128"))?;
+        result *= BASE as u32;
+        result += BigUint::from(digit as u32);
     }
     Ok(result)
+}
+
+fn extract_biguint(value: Bound<'_, PyAny>, negative_message: &'static str) -> PyResult<BigUint> {
+    if let Ok(long) = value.downcast::<PyLong>() {
+        return pylong_to_biguint(&long, negative_message);
+    }
+
+    let int_obj = value
+        .call_method0("__int__")
+        .map_err(|_| PyValueError::new_err("Value must be an int or expose an __int__ method"))?;
+    let long = int_obj
+        .downcast::<PyLong>()
+        .map_err(|_| PyValueError::new_err("Value must be an int or expose an __int__ method"))?;
+    pylong_to_biguint(&long, negative_message)
+}
+
+fn pylong_to_biguint(
+    long: &Bound<'_, PyLong>,
+    negative_message: &'static str,
+) -> PyResult<BigUint> {
+    if long.lt(0)? {
+        return Err(PyValueError::new_err(negative_message));
+    }
+    let bit_length: usize = long.call_method0("bit_length")?.extract()?;
+    if bit_length == 0 {
+        return Ok(BigUint::from(0u8));
+    }
+    let byte_length = (bit_length + 7) / 8;
+    let bytes: Bound<'_, PyBytes> = long
+        .call_method("to_bytes", (byte_length, "little"), None)?
+        .downcast_into()?;
+    Ok(BigUint::from_bytes_le(bytes.as_bytes()))
 }
 
 fn extract_uuid(py: Python<'_>, uuid: Option<PyObject>) -> PyResult<u128> {
@@ -130,15 +180,16 @@ fn extract_timestamp(timestamp: Option<Bound<'_, PyAny>>) -> PyResult<u128> {
 #[pyfunction]
 #[pyo3(signature = (value, pad_to=None))]
 fn base57_encode(value: Bound<'_, PyAny>, pad_to: Option<usize>) -> PyResult<String> {
-    if value.lt(0)? {
-        return Err(PyValueError::new_err("Value must be non-negative"));
+    let number = extract_biguint(value, "Value must be non-negative")?;
+    if let Some(small) = number.to_u128() {
+        Ok(encode_base57(small, pad_to))
+    } else {
+        Ok(encode_big_base57(&number, pad_to))
     }
-    let number = value.extract::<u128>()?;
-    Ok(encode_base57(number, pad_to))
 }
 
 #[pyfunction]
-fn decode57(value: &str) -> PyResult<u128> {
+fn decode57(value: &str) -> PyResult<BigUint> {
     decode_base57(value)
 }
 

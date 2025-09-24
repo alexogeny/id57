@@ -28,6 +28,12 @@ def test_base57_known_values() -> None:
         2**64: "txLqViLENDy",
         2**128 - 1: "oZEq7ovRbLq6UnGMPwc8B5",
     }
+    big_values = [
+        1 << 200,
+        (1 << 400) + 123_456_789,
+    ]
+    for value in big_values:
+        cases[value] = reference.base57_encode(value)
     for value, expected in cases.items():
         assert base57_encode(value) == expected
         assert decode57(expected) == value
@@ -77,6 +83,15 @@ def test_round_trip_with_padding() -> None:
             encoded = base57_encode(value, pad_to=width)
             assert len(encoded) >= width
             assert decode57(encoded) == value
+
+
+def test_decode_preserves_arbitrary_precision() -> None:
+    value = (1 << 512) + 987_654_321
+    encoded = reference.base57_encode(value)
+    decoded = decode57(encoded)
+    assert isinstance(decoded, int)
+    assert decoded == value
+    assert decoded.bit_length() == value.bit_length()
 
 
 def test_generate_id57_composition() -> None:
