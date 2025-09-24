@@ -1,0 +1,15 @@
+[package]
+name = "id57"
+version = "1.0.0"
+edition = "2021"
+license = "MIT"
+description = "Rust-backed helpers for Artemis-style base-57 identifiers"
+repository = "https://github.com/alexogeny/id57"
+
+[lib]
+name = "_core"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.22.4", features = ["extension-module", "abi3-py39"] }
+uuid = { version = "1.8", features = ["v4"] }
