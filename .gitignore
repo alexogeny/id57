@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+*.so
+dist/
+build/
+*.egg-info/
+.venv/
+.uv/
+target/
+.maturin/
+.pytest_cache/
+.coverage
+*.log
