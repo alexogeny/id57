@@ -40,6 +40,7 @@ jobs:
         run: maturin build --release --out dist
 
       - name: Install built wheel
+        shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -109,6 +110,7 @@ jobs:
 
       - name: Extract version
         id: metadata
+        shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -126,6 +128,7 @@ jobs:
         id: changelog
         env:
           VERSION: ${{ steps.metadata.outputs.version }}
+        shell: bash
         run: |
           python - <<'PY'
           from __future__ import annotations
